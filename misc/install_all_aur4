@@ -1,0 +1,2 @@
+#!/usr/bin/zsh
+for i in $(/usr/bin/ls -d *); do yaourt -Qm $i || TMPDIR=$HOME/tmp yaourt -S $i --noconfirm ; done

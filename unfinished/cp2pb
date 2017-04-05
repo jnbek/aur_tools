@@ -1,0 +1,44 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use CPANPLUS::Dist::Arch;
+use CPANPLUS::Backend;
+use MetaCPAN::Client;
+use Data::Dumper;
+use warnings;
+use strict;
+
+( bless {}, __PACKAGE__ )->main();
+
+sub mcpan {
+    shift->{__mcpan} ||= do { MetaCPAN::Client->new; }
+}
+
+sub main {
+    my $self = shift;
+
+# Create a source package in our current directory, no verbosity.
+    my $cb  = CPANPLUS::Backend->new();
+    my $mod = $cb->parse_module(module => $ARGV[0]);
+    my $mc = $self->mcpan->release( $mod->package_name);
+    my $cp  = CPANPLUS::Dist::Arch->new( module => $mod );
+    print Dumper($cp->find_configure_requires);
+    $cp->_resolve_prereqs(
+        target       => 'create',
+        prereqs      => $mc->dependency,
+        format       => 'CPANPLUS::Dist::Arch',
+        verbose      => 1,
+        prereq_build => 0,
+    );
+
+    $cp->create(
+        target  => 'create',
+        format  => 'CPANPLUS::Dist::Arch',
+        pkg     => 'src',
+        destdir => './srcresults',
+        verbose => 1,
+    );
+    return;
+}

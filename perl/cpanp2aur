@@ -1,0 +1,32 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use File::Spec;
+use Data::Dumper;
+use Archive::Extract;
+use CPANPLUS::Backend;
+
+( bless {}, __PACKAGE__ )->main;
+
+sub main {
+    my $self         = shift;
+    my $pkg          = $ARGV[0] || 'Mo';
+    my $extract_path = $ARGV[1] || '/tmp';
+    my $cb           = CPANPLUS::Backend->new();
+    my $mod = $cb->parse_module( module => $pkg );
+    my $dist = $mod->install(
+        target  => 'create',
+        format  => 'CPANPLUS::Dist::Arch',
+        pkg     => 'src',
+        destdir => $extract_path,
+        verbose => 1
+    );
+    #This is stupid
+    my $tarball = $mod->status->dist->status->dist;
+    my $ae = Archive::Extract->new( archive => $tarball );
+    my $ok = $ae->extract( to => $extract_path );
+    printf( "Extracted the following files from %s\n", $tarball );
+    foreach my $file ( @{$ae->files} ) {
+        printf( "%s\n", File::Spec->catfile( $extract_path, $file ) );
+    }
+}
