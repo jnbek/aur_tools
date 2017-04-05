@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use YAML;
 use File::Find;
 use Data::Dumper;
 ( bless {}, __PACKAGE__ )->main();
@@ -35,10 +36,10 @@ sub main {
                 $hash->{$key}->{'dupes'}->{$dupe} = $owner;
             }
             printf(
-                "%s:\n \t Count: %s\nPaths and Ownership:\n[ %s ]\n",
+                "%s:\nCount: %s\nPaths and Ownership:\n[ %s ]\n",
                 $key,
                 $hash->{$key}->{'count'},
-                ( Dumper( [ values %{ $hash->{$key}->{'dupes'} } ] ) )
+                ( YAML::Dump( [ values %{ $hash->{$key}->{'dupes'} } ] ) )
             );
         }
     }
