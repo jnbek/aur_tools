@@ -1,10 +1,8 @@
-#! /usr/bin/perl -w
-eval 'exec /usr/bin/perl -S $0 ${1+"$@"}'
-  if 0;    #$running_under_some_shell
+#! /usr/bin/env perl
 
 use strict;
 use warnings;
-use Data::Dumper;
+use YAML;
 use Cwd        ();
 use File::Find ();
 
@@ -28,7 +26,7 @@ sub main {
         File::Find::find( { wanted => $want }, $d );
     }
     print "The following files are orphaned/not owned by a package:\n";
-    print Dumper($self->{'orphans'});
+    print YAML::Dump($self->{'orphans'});
     exit;
 }
 
