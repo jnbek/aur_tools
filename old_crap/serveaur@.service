@@ -1,0 +1,12 @@
+[Unit]
+Description=serveaur
+After=network-online.target
+
+[Service]
+Type=forking
+User=%i
+ExecStart=/opt/www/aur_server/serveaur start
+ExecStop=/opt/www/aur_server/serveaur stop
+
+[Install]
+WantedBy=multi-user.target
