@@ -1,0 +1,76 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+
+use Git;
+use ALPM;
+use WWW::AUR;
+use Env qw(HOME);
+use MetaCPAN::Client;
+use CPANPLUS::Backend;
+use WWW::AUR::PKGBUILD;
+
+( bless {}, __PACKAGE__ )->main();
+
+sub cb {
+    shift->{__cb} ||= do { CPANPLUS::Backend->new; }
+}
+
+sub aur {
+    shift->{__aur} ||= do { WWW::AUR->new; }
+}
+
+sub alpm {
+    shift->{__alpm} ||= do { ALPM->new( '/tmp', '/var/lib/db' ); }
+}
+
+sub mcpan {
+    shift->{__mcpan} ||= do { MetaCPAN::Client->new; }
+}
+
+sub pkgbuild {
+    my $self     = shift;
+    my $pkgbuild = shift;
+    my $pbtext   = do { local ( @ARGV, $/ ) = $pkgbuild; <> };
+    return WWW::AUR::PKGBUILD->new($pbtext);
+}
+
+sub main {
+    my $self = shift;
+    my $mod = $self->mcpan->release("Catalyst-Runtime");
+    print Dumper($mod->dependency, $mod->version, $mod);
+
+    return 0;
+}
+__END__
+
+TODO:
+
+Make sure we have git repos. $HOME/aur4/ for instance
+Copy package directory into a 'build directory' and chdir there.
+Load the PKGBUILD and parse it, get the version.
+Slap MetaCPAN, get module's version and dependencies.
+If versions don't match:
+    Check dependencies from PKGBUILD compare with MetaCPAN list of dependencies.
+    If new dependencies:
+        Check local filesystem for package's PKGBUILD.
+        If found, build/install it otherwise:
+            Check ALPM for 'official' package
+            Check WWW::AUR->search for AUR package.
+            Otherwise push into a fail array and move on
+    Otherwise:
+        Update PKGBUILDs pkgver to MetaCPANs version.
+        Pull package from MetaCPAN and md5sum it. (Maybe use CPANPLUS::Dist::Arch to do all this?)
+        run makepkg to ensure it builds
+        run mksrcinfo to update .SRCINFO
+        Copy new PKGBUILD and .SRCINFO into Git Repo Directory.
+        git commit PKGBUILD .SRCINFO
+        git push
+        If any of the above steps fail, push into fail array and move on
+
+
+
+    
