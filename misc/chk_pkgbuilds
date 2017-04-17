@@ -1,10 +1,13 @@
 #!/usr/bin/env perl
+
+use v5.16;
 use strict;
 use warnings;
 use version;
 
 use JSON;
 use HTTP::Tiny;
+use Getopt::Long;
 use Data::Dumper;
 use Env qw(HOME);
 use File::Find ();
@@ -62,17 +65,18 @@ sub asset_versions {
 sub main {
     my $self = shift;
     $self->{'results'} = [];
+    $self->{'short'}   = 0;
+    $self->{'opt_v'}   = 0;
     *name              = *File::Find::name;
     *dir               = *File::Find::dir;
     *prune             = *File::Find::prune;
 
+    my $opts = GetOptions( "v" => \$self->{'opt_v'}, "short" => \$self->{'short'}, );
     my $wanted = sub {
         my ( $dev, $ino, $mode, $nlink, $uid, $gid );
-
         ( ( $dev, $ino, $mode, $nlink, $uid, $gid ) = lstat($_) )
           && -f _
           && /^PKGBUILD\z/s
-#          && print("$name\n")
           && $self->parse_pkg( $name, $dir, $_ );
     };
     my $finder = File::Find::find( { wanted => $wanted }, $self->aur4_root );
@@ -88,6 +92,7 @@ sub parse_pkg {
     my $suffix   = 'others';
     my $pkg_name = ( split '/', $dir )[-1];
     return [] if grep ( /$pkg_name/, @{ $self->ignore_pkgs } );
+    say $pkg_name if $self->{'opt_v'};
     my $method = join( '_',
         'parse', $pkg_name =~ m/^perl/ ? 'perl' : $pkg_name =~ m/^nodejs/ ? 'node' : $suffix );
     my $results = $self->$method($path);
@@ -105,12 +110,12 @@ sub parse_perl {
 
     # Use CPANPLUS first, if we get a bunk version, fallback to MetaCPAN
     my $mod_ver = 0;
-    my $mod_obj = $self->cpan->parse_module( module => $cpan_module );
-    if ($mod_obj->version =~ m/^\D/) {
+    my $mod_obj = eval { $self->cpan->parse_module( module => $cpan_module ) };
+    if ( !$mod_obj || $mod_obj->version =~ m/^\D/ ) {
         my $mod_obj = eval { $self->mcpan->release($cpan_module) };
-        if($@) {
+        if ($@) {
             $mod_ver = "UNKNOWN Error";
-            $@ = 0;
+            $@       = 0;
         }
         else {
             $mod_ver = $mod_obj->version_numified;
@@ -119,12 +124,16 @@ sub parse_perl {
     else {
         $mod_ver = $mod_obj->version;
     }
-    push @{ $self->{'results'} },
-      { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => $mod_ver } };
-#    if ( "$pkbd->pkgver" ne "$mod_obj->version" ) {
-#        push @{ $self->{'results'} },
-#          { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => $mod_obj->version } };
-#    }
+    if ( $self->{'short'} ) {
+        if ( "$pkbd->pkgver" ne "$mod_obj->version" ) {
+            push @{ $self->{'results'} },
+              { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => $mod_obj->version } };
+        }
+    }
+    else {
+        push @{ $self->{'results'} },
+          { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => $mod_ver } };
+    }
     return 0;
 }
 
@@ -142,13 +151,18 @@ sub parse_node {
     my $hash     = from_json( $res->{content} );
     my $latest   = $hash->{'dist-tags'}->{'latest'};
     my $versions = $hash->{'versions'};
-    push @{ $self->{'results'} },
-      { $pkbd->pkgname =>
-          { pkgbuild => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
-#    if ( "$pkbd->pkgver" ne "$versions->{$latest}->{'version'}" ) {
-#        push @{ $self->{'results'} },
-#          { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
-#    }
+    if ( $self->{'short'} ) {
+        if ( "$pkbd->pkgver" ne "$versions->{$latest}->{'version'}" ) {
+            push @{ $self->{'results'} },
+              { $pkbd->pkgname =>
+                  { pkgbuild => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
+        }
+    }
+    else {
+        push @{ $self->{'results'} },
+          { $pkbd->pkgname =>
+              { pkgbuild => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
+    }
 }
 
 sub parse_others {
@@ -163,10 +177,10 @@ sub parse_others {
 }
 
 sub process_tt {
-    my $self = shift;
-    my $t    = $self->tt_obj;
+    my $self           = shift;
+    my $t              = $self->tt_obj;
     my $asset_versions = $self->asset_versions;
-    my $hash = {};
+    my $hash           = {};
     $hash->{'items'}    = $self->{'results'};
     $hash->{'gen_date'} = $self->time_now;
     map { $hash->{$_} = $asset_versions->{$_} } keys %{$asset_versions};

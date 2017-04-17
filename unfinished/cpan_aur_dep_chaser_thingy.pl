@@ -25,12 +25,14 @@ sub aur {
 }
 
 sub alpm {
-    shift->{__alpm} ||= do { ALPM->new( '/tmp', '/var/lib/pacman' ); }
+    shift->{__alpm} ||= do { ALPM->new( '/', '/var/lib/pacman' ); }
 }
 
 sub mcpan {
     shift->{__mcpan} ||= do { MetaCPAN::Client->new; }
 }
+
+sub tmp_dir { "/tmp/cpanp_staging" }
 
 sub pkgbuild {
     my $self     = shift;
@@ -40,22 +42,26 @@ sub pkgbuild {
 }
 
 sub main {
-    my $self = shift;
-    my $mod = $self->mcpan->release($ARGV[0]);
-    my $needed = []; 
-    for my $deps (@{$mod->dependency}) {
+    my $self   = shift;
+    my $mod    = $self->mcpan->release( $ARGV[0] || 'Moose' );
+    my $needed = [];
+    unless ( -d $self->tmp_dir ) {
+        mkdir( $self->tmp_dir );
+    }
+    chdir( $self->tmp_dir );
+    for my $deps ( @{ $mod->dependency } ) {
         my $module = $deps->{'module'};
         next if Module::CoreList->is_core($module);
-        my $aur_mod = sprintf("perl-%s", lc($module));
+        next unless $deps->{'relationship'} eq 'requires';
+        my $aur_mod = sprintf( "perl-%s", lc($module) );
         $aur_mod =~ s/\:\:/-/g;
         next if $self->alpm->search($aur_mod);
         push @{$needed}, $module unless $self->aur->find($aur_mod);
-    }   
+    }
     print Dumper($needed);
-    chdir("/tmp/staging_sub_exporter_glob");
-    for my $module (@{$needed}) {
-        print "Failed $module\n" 
-            if system("/usr/bin/vendor_perl/cpan2aur $module");
+    for my $module ( @{$needed} ) {
+        print "Failed $module\n"
+          if system("/usr/bin/vendor_perl/cpan2aur $module");
     }
     return 0;
 }
