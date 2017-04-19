@@ -26,6 +26,8 @@ sub html_file { "$HOME/var/html/aur_versions.html" }
 
 sub aur4_root { "$HOME/aur4" }
 
+sub moz_slapper { "$HOME/bin/moz_versions.pl" }
+
 # End Configuration
 
 sub tt_obj { Template::Alloy->new }
@@ -53,12 +55,20 @@ sub pkgbuild {
     );
 }
 
+sub fix_version {
+    my $self   = shift;
+    my $ver    = shift;
+    my $parsed = version->parse($ver);
+    return join ".", @{ $parsed->{'version'} }
+
+}
+
 sub asset_versions {
     {
-        jquery    => '2.2.3',
+        jquery    => '3.2.1',
         respondjs => '1.4.2',
-        bootstrap => '3.3.6',
-        html5shiv => '3.7.2',
+        bootstrap => '3.3.7',
+        html5shiv => '3.7.3',
     };
 }
 
@@ -183,6 +193,10 @@ sub process_tt {
     my $hash           = {};
     $hash->{'items'}    = $self->{'results'};
     $hash->{'gen_date'} = $self->time_now;
+    $hash->{'mozilla_version_string'} =
+      -x $self->moz_slapper
+      ? qx{$self->moz_slapper}
+      : sprintf( "Install the %s script!!", $self->moz_slapper );
     map { $hash->{$_} = $asset_versions->{$_} } keys %{$asset_versions};
     my $out = undef;    #$self->html_file;
     open my $OUT, ">", $self->html_file;
@@ -250,6 +264,8 @@ sub html_tt {
                 [%- END %]
             </table>
             <h5>Total confirmed out of date pkgs: [% count %]</h5>
+            <h3> Mozilla Versions: </h3>
+            <pre>[% mozilla_version_string %]</pre>
       </div>
         <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/[%- jquery %]/jquery.min.js"></script>
         <script>
