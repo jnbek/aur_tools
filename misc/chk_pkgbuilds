@@ -28,6 +28,8 @@ sub aur4_root { "$HOME/aur4" }
 
 sub moz_slapper { "$HOME/bin/moz_versions.pl" }
 
+sub moz_hg_slapper { "$HOME/bin/moz_hg_mech.pl" }
+
 # End Configuration
 
 sub tt_obj { Template::Alloy->new }
@@ -58,7 +60,8 @@ sub pkgbuild {
 sub fix_version {
     my $self   = shift;
     my $ver    = shift;
-    my $parsed = version->parse($ver);
+    my $parsed = eval { version->parse($ver) };
+    return $ver unless $parsed;
     return join ".", @{ $parsed->{'version'} }
 
 }
@@ -117,7 +120,7 @@ sub parse_perl {
     #my $url         = shift [ grep { /cpan/ } @{ $fields->{'source'} } ];
     $cpan_module =~ s#/$##;
     $cpan_module =~ s/^.+\/(.*)/$1/;
-
+    my $pkbd_pkgver = $self->fix_version($pkbd->pkgver);
     # Use CPANPLUS first, if we get a bunk version, fallback to MetaCPAN
     my $mod_ver = 0;
     my $mod_obj = eval { $self->cpan->parse_module( module => $cpan_module ) };
@@ -128,21 +131,21 @@ sub parse_perl {
             $@       = 0;
         }
         else {
-            $mod_ver = $mod_obj->version_numified;
+            $mod_ver = $self->fix_version($mod_obj->version_numified);
         }
     }
     else {
-        $mod_ver = $mod_obj->version;
+        $mod_ver = $self->fix_version($mod_obj->version);
     }
     if ( $self->{'short'} ) {
-        if ( "$pkbd->pkgver" ne "$mod_obj->version" ) {
+        if ( "$pkbd_pkgver" ne "$mod_obj->version" ) {
             push @{ $self->{'results'} },
-              { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => $mod_obj->version } };
+              { $pkbd->pkgname => { pkgbuild => $pkbd_pkgver, orig_pkbd_ver => $pkbd->pkgver, upstream => $mod_obj->version } };
         }
     }
     else {
         push @{ $self->{'results'} },
-          { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => $mod_ver } };
+          { $pkbd->pkgname => { pkgbuild => $pkbd_pkgver, orig_pkbd_ver => $pkbd->pkgver, upstream => $mod_ver } };
     }
     return 0;
 }
@@ -165,13 +168,13 @@ sub parse_node {
         if ( "$pkbd->pkgver" ne "$versions->{$latest}->{'version'}" ) {
             push @{ $self->{'results'} },
               { $pkbd->pkgname =>
-                  { pkgbuild => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
+                  { pkgbuild => $pkbd->pkgver, orig_pkbd_ver => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
         }
     }
     else {
         push @{ $self->{'results'} },
           { $pkbd->pkgname =>
-              { pkgbuild => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
+              { pkgbuild => $pkbd->pkgver, orig_pkbd_ver => $pkbd->pkgver, upstream => $versions->{$latest}->{'version'} } };
     }
 }
 
@@ -180,7 +183,7 @@ sub parse_others {
     my $pkgbuild = shift;
     my $pkbd     = $self->pkgbuild($pkgbuild);
     push @{ $self->{'results'} },
-      { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, upstream => "NOT IMPLEMENTED" } };
+      { $pkbd->pkgname => { pkgbuild => $pkbd->pkgver, orig_pkbd_ver => "NOT IMPLEMENTED" , upstream => "NOT IMPLEMENTED" } };
     # HTTP Slap $pkbd->source
     # If HTTP Slap returns anything but 200 or 30(1|2) fail it.
     # Calculate md5sum maybe, compare with md5sum in PKGBUILD?
@@ -188,19 +191,25 @@ sub parse_others {
 
 sub process_tt {
     my $self           = shift;
-    my $t              = $self->tt_obj;
+    my $tt              = $self->tt_obj;
     my $asset_versions = $self->asset_versions;
+    my $moz_slapper    = $self->moz_slapper;
+    my $moz_hg_slapper = $self->moz_hg_slapper;
     my $hash           = {};
     $hash->{'items'}    = $self->{'results'};
     $hash->{'gen_date'} = $self->time_now;
-    $hash->{'mozilla_version_string'} =
-      -x $self->moz_slapper
-      ? qx{$self->moz_slapper}
-      : sprintf( "Install the %s script!!", $self->moz_slapper );
-    map { $hash->{$_} = $asset_versions->{$_} } keys %{$asset_versions};
+    $hash->{'mozilla_hg_ver_str'} =
+      -x $moz_hg_slapper
+      ? qx{$moz_hg_slapper}
+      : "Install the $moz_hg_slapper script!!";
+    $hash->{'mozilla_ver_str'} =
+      -x $moz_slapper
+      ? qx{$moz_slapper}
+      : "Install the $moz_slapper script!!";
+    my $nul = map { $hash->{$_} = $asset_versions->{$_} } keys %{$asset_versions};
     my $out = undef;    #$self->html_file;
     open my $OUT, ">", $self->html_file;
-    my $hush_it = $t->process( $self->html_tt, $hash, $OUT );
+    my $hush_it = $tt->process( $self->html_tt, $hash, $OUT );
     close $OUT;
     return 0;
 }
@@ -230,7 +239,8 @@ sub html_tt {
         <br />
             <table border="1" class="sortable-theme-finder" data-sortable>
                 <tr>
-                    <th> Pkgbuild </th>
+                    <th> Pkgbuild (Parsed)</th>
+                    <th> Pkgbuild (Original)</th>
                     <th> AUR Version </th>
                     <th> Upstream Version</th>
                     <th> Out of Date </th>
@@ -257,6 +267,7 @@ sub html_tt {
                 <tr style="background-color: [%- color %]" class="[% status_class %]">
                     <td><a target="_BLANK" href="https://aur.archlinux.org/packages/[%- i %]">[%- i %]</a></td>
                     <td> [% item.$i.pkgbuild %] </td>
+                    <td> [% item.$i.orig_pkbd_ver %] </td>
                     <td> [% item.$i.upstream %] </td>
                     <td> [% status %] </td>
                 </tr>
@@ -265,7 +276,9 @@ sub html_tt {
             </table>
             <h5>Total confirmed out of date pkgs: [% count %]</h5>
             <h3> Mozilla Versions: </h3>
-            <pre>[% mozilla_version_string %]</pre>
+            <pre>[% mozilla_ver_str %]</pre>
+            <h3> Mozilla HG Versions: </h3>
+            <pre>[% mozilla_hg_ver_str %]</pre>
       </div>
         <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/[%- jquery %]/jquery.min.js"></script>
         <script>
